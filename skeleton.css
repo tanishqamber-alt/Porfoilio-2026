@@ -1,0 +1,45 @@
+/* Loading skeletons for the About page and the case studies ("Loading — About", "Loading — case study").
+   The frame is a snapshot of the page's real shell (nav, back, sound, light/dark, mobile bar, Menu, grain),
+   drawn with the page's own CSS. Only the content blocks below are the skeleton's own; they sit in a
+   transparent layer over <main>. Class names are prefixed so they never touch the real page. */
+#skl{display:none;position:fixed;inset:0;z-index:2147482999;overflow:hidden;opacity:1;transition:opacity .18s ease}
+#skl.out{opacity:0;pointer-events:none}
+html[data-loader="skeleton"] #skl{display:block}
+#skl .skl-frame{position:absolute;inset:0;overflow:hidden}
+/* While the skeleton shows, <main> keeps only the back button; the sound pop-up and the sound button's dot wait. */
+#skl .skl-frame main>*:not(.crumb),#skl .skl-frame .ssnd-pop,#skl .skl-frame .snd-dot{display:none !important}
+
+/* Colours */
+.skl-skp{--bg:#ECE9E3;--t1:#121212;--t2:#3B3A37;--t3:#5B5955;--rule:rgba(18,18,18,.14);--glass:#F5F3EF;--sk:rgba(18,18,18,.06);--shine:rgba(255,255,255,.55);--ac:rgba(18,18,18,.06);color:var(--t1)}
+.skl-skp.skl-dark{--bg:#14161A;--t1:#ECE9E3;--t2:#B4B1AA;--t3:#8F8C86;--rule:rgba(236,233,227,.14);--glass:#1C1E23;--sk:rgba(236,233,227,.07);--shine:rgba(236,233,227,.13);--ac:rgba(236,233,227,.07);color-scheme:dark}
+
+/* The content layer: transparent, laid over <main> */
+#skl .skl-layer{position:absolute;top:88px;left:296px;right:32px;box-sizing:border-box;background:transparent;padding:48px 49px 0}
+#skl .skl-layer.skl-case{padding:48px 48px 0}
+@media (max-width:900px){
+#skl .skl-layer{top:88px;left:16px;right:16px;padding:48px 20px 120px} /* below the 72px floating mobile top bar */
+#skl .skl-layer.skl-case{padding:28px 28px 120px}
+}
+
+/* Blocks and shimmer */
+.skl-sk{display:block;border-radius:6px;background:linear-gradient(100deg,var(--sk) 38%,var(--shine) 50%,var(--sk) 62%);background-size:300% 100%;animation:skl-shine 1.8s linear infinite}
+.skl-sk.skl-ac{background-image:linear-gradient(100deg,var(--ac) 38%,var(--shine) 50%,var(--ac) 62%)}
+@keyframes skl-shine{from{background-position:100% 0}to{background-position:0 0}}
+@media (prefers-reduced-motion: reduce){.skl-sk{animation:none;background:var(--sk)}.skl-sk.skl-ac{background:var(--ac)}}
+.skl-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.skl-content{display:flex;flex-direction:column}
+.skl-stack{display:flex;flex-direction:column}
+.skl-card{background:var(--glass);border-radius:22px;padding:28px 22px;display:flex;flex-direction:column;gap:12px}
+
+/* Layout of the blocks by width */
+@media (max-width:1100px){.skl-skhw{grid-template-columns:repeat(3,minmax(0,1fr)) !important}.skl-sktools{grid-template-columns:repeat(3,minmax(0,1fr)) !important}.skl-sksvc{grid-template-columns:repeat(2,minmax(0,1fr)) !important}}
+@media (max-width:900px){.skl-skintro{grid-template-columns:minmax(0,1fr) !important;gap:40px !important}.skl-skid{grid-row:1;max-width:260px}.skl-sksvc{grid-template-columns:minmax(0,1fr) !important}.skl-skmeta{grid-template-columns:repeat(2,minmax(0,1fr)) !important}.skl-skcards{grid-template-columns:minmax(0,1fr) !important}}
+@media (max-width:600px){.skl-skhw,.skl-sktools{grid-template-columns:repeat(2,minmax(0,1fr)) !important}}
+
+/* About, one column: heading, then photo, then the story (same order as the real page). */
+@media (max-width:900px){#skl .skl-skintro{display:flex !important;flex-direction:column;align-items:stretch !important;gap:30px !important}#skl .skl-skintro>.skl-stack:first-child{display:contents}#skl .skl-skintro>.skl-stack:first-child>:first-child{order:-2}#skl .skl-skid{order:-1;grid-row:auto;width:100%;max-width:260px}}
+
+/* About: the photo placeholder is shaped exactly like the real photo card, with the same empty strip under the
+   photo and no placeholder text lines. */
+.skl-cap{display:block;height:0}
+#skl .skl-skid{box-sizing:border-box}

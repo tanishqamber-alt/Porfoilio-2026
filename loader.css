@@ -1,0 +1,42 @@
+/* Paper colour from the first paint, so nothing flashes white while the page boots. */
+html[data-theme="dark"]{background:#14161A}
+html[data-theme="light"]{background:#ECE9E3}
+/* The page's template stays hidden until the runtime has drawn it. */
+x-dc{display:none!important}
+
+/* Morty's face loader (States board: "Loading shows Morty's face, blinking"). */
+#pl{position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;isolation:isolate;overflow:hidden;background:#ECE9E3;color:#121212;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .2s ease,visibility 0s linear .2s}
+html[data-theme="dark"] #pl{background:#14161A;color:#ECE9E3}
+#pl::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:url("/assets/e781bd4df45b4122d95b345061369950.png") 0 0/200px 200px repeat;opacity:.14}
+html[data-theme="dark"] #pl::before{opacity:.05;mix-blend-mode:screen}
+#pl.on{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .2s ease}
+#pl.out{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .3s ease,visibility 0s linear .3s}
+html[data-loader="skeleton"] #pl{display:none}
+/* First page of a visit: there from the first paint; the bar fills once, completely, over 1.2 s. */
+html[data-first-visit] #pl{opacity:1;visibility:visible;pointer-events:auto;transition:none}
+html[data-first-visit] #pl.out{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .3s ease,visibility 0s linear .3s}
+#pl .lface{position:relative;display:block;width:88px;height:85px}
+#pl .lface img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated}
+#pl .lface .fc{opacity:0;animation:pl-blink 4.2s steps(1,end) infinite}
+#pl .lface .fo{animation:pl-blinko 4.2s steps(1,end) infinite}
+@keyframes pl-blink{0%,62%{opacity:0}63%,66%{opacity:1}67%,88%{opacity:0}89%,91%{opacity:1}92%,100%{opacity:0}}
+@keyframes pl-blinko{0%,62%{opacity:1}63%,66%{opacity:0}67%,88%{opacity:1}89%,91%{opacity:0}92%,100%{opacity:1}}
+#pl .lbl{font-family:'Geist Mono',ui-monospace,monospace;font-weight:500;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+#pl .dots::after{content:"";display:inline-block;width:1.6em;text-align:left;animation:pl-dots 1.2s steps(4) infinite}
+@keyframes pl-dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+#pl .track{position:relative;width:120px;height:2px;border-radius:1px;overflow:hidden;background:rgba(18,18,18,.14)}
+html[data-theme="dark"] #pl .track{background:rgba(236,233,227,.16)}
+#pl .track span{position:absolute;inset:0;background:currentColor;transform-origin:0 50%;animation:pl-fill 1.6s cubic-bezier(.2,.8,.2,1) infinite}
+@keyframes pl-fill{0%{transform:scaleX(0)}70%{transform:scaleX(1)}100%{transform:scaleX(1);opacity:0}}
+#pl.first .track span{animation:pl-once 1.2s cubic-bezier(.4,0,.2,1) both}
+@keyframes pl-once{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@media (prefers-reduced-motion: reduce){#pl .track{display:none}#pl .dots::after,#pl .lface .fc,#pl .lface .fo{animation:none}#pl,#pl.on,#pl.out{transition:none}}
+
+/* Skeleton pages: the real content is held back while the skeleton shows, then fades in as the skeleton fades out. */
+html.skl-hold #dc-root main>*:not(.crumb),html.skl-hold #dc-root .ssnd-pop{opacity:0 !important}
+html.skl-reveal #dc-root main>*:not(.crumb){transition:opacity .22s ease .16s !important} /* starts as the skeleton is nearly gone */
+@media (prefers-reduced-motion: reduce){html.skl-reveal #dc-root main>*:not(.crumb){transition:none !important}}
+
+/* Mobile bottom menu open: the page behind it can't scroll in any direction; the sheet keeps its own scroll. */
+html.ta-menu-open,html.ta-menu-open body{overflow:hidden !important;overscroll-behavior:none !important;touch-action:none}
+html.ta-menu-open .msheet{touch-action:pan-y;overscroll-behavior:contain}

@@ -1,0 +1,15 @@
+# Addresses from earlier exports, kept working
+/loan-against-property         /work/loan-against-property         301
+/loan-against-property-light   /work/loan-against-property-light   301
+/money-management              /work/money-management              301
+/money-management-light        /work/money-management-light        301
+/ai-automation                 /work/ai-automation                 301
+/ai-automation-light           /work/ai-automation-light           301
+/dark                          /                                   301
+/about-dark                    /about                              301
+/loan-against-property-dark    /work/loan-against-property         301
+/money-management-dark         /work/money-management              301
+/ai-automation-dark            /work/ai-automation                 301
+# /work has no page of its own
+/work                          /                                   301
+/work/                         /                                   301

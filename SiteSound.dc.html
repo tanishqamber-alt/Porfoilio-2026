@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sound — first-visit pop-up and audio engine</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+/* Closing the pop-up: a short, subtle fade. */
+.ssnd-pop.ssnd-out{animation:ssnd-out .25s ease forwards !important;pointer-events:none}
+@keyframes ssnd-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(4px)}}
+@media (prefers-reduced-motion: reduce){.ssnd-pop.ssnd-out{animation:none !important;opacity:0}}
+</style>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+</helmet>
+<div class="ssnd" style="display: contents">
+<sc-if value="{{popup}}" hint-placeholder-val="{{false}}">
+<section class="ssnd-pop {{posCls}} {{outCls}}" aria-label="Sound preference" aria-live="polite" style="position: fixed; left: {{pos.left}}; top: {{pos.top}}; right: {{pos.right}}; bottom: {{pos.bottom}}; width: {{pos.width}}; z-index: 60; box-sizing: border-box; max-width: calc(100vw - 32px); display: flex; flex-direction: column; gap: {{sz.gap}}; padding: {{sz.pad}}; border-radius: {{sz.rad}}; background: var(--sheet, var(--panel, var(--bg, #F5F3EF))); color: var(--t1, #121212); border: 1px solid var(--rule, rgba(18,18,18,.16)); box-shadow: 0 24px 48px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.12); font-family: 'DM Sans', system-ui, sans-serif; -webkit-font-smoothing: antialiased">
+<sc-if value="{{tail}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="position: absolute; left: {{tp.left}}; top: {{tp.top}}; right: {{tp.right}}; bottom: {{tp.bottom}}; width: 14px; height: 14px; box-sizing: border-box; background: var(--sheet, var(--panel, var(--bg, #F5F3EF))); border-right: 1px solid var(--rule, rgba(18,18,18,.16)); border-bottom: 1px solid var(--rule, rgba(18,18,18,.16)); transform: rotate({{tp.rot}})"></span></sc-if>
+<button type="button" class="ssnd-x" data-own-sound="" onClick="{{dismiss}}" aria-label="Close" title="Close" style="position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--t3, #5B5955); display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+<p style="margin: 0; padding-right: 26px; font-size: {{sz.fs}}; line-height: 1.5; color: var(--t1, #121212); text-wrap: pretty">Hi, I’m Morty! I meow at hellos, purrrrr while you explore, and have a little temper. <span style="font-weight: 600">Come say hi!</span></p>
+<div style="display: grid; grid-template-columns: {{sz.cols}}; gap: 8px">
+<button type="button" class="ssnd-pri" data-own-sound="" onClick="{{turnOn}}" style="min-height: {{sz.bh}}; padding: 0 {{sz.bpad}}; border: 0; border-radius: 999px; background: {{ctaBg}}; box-shadow: none; color: {{ctaInk}}; font-family: 'DM Sans', system-ui, sans-serif; font-size: {{sz.bfs}}; white-space: nowrap; text-align: center; font-weight: 600; cursor: pointer">Turn sound on</button>
+<button type="button" class="ssnd-b" data-own-sound="" onClick="{{keepQuiet}}" style="min-height: {{sz.bh}}; padding: 0 {{sz.bpad}}; border: 0; border-radius: 999px; background: transparent; box-shadow: inset 0 0 0 1px var(--rule, rgba(18,18,18,.16)); color: var(--t1, #121212); font-family: 'DM Sans', system-ui, sans-serif; font-size: {{sz.bfs}}; white-space: nowrap; text-align: center; font-weight: 500; cursor: pointer">Keep it quiet</button>
+</div>
+</section>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"sndReady":{"editor":null},"sndState":{"editor":null},"$preview":{"width":420,"height":340}}'>
+class Component extends DCLogic {
+  /* One sound switch for the whole site. Off until the visitor opts in; the choice is kept in localStorage.
+     All audio runs through one shared AudioContext (created only from a click) -> music bus / effects bus -> master gain -> compressor.
+     The engine lives on the window so the tune keeps playing when a page link or the light/dark switch swaps the page.
+     The pop-up sits beside Morty the cat (to his left, or above him on narrow phones) so it never covers him. */
+  constructor(props) {
+    super(props);
+    this.state = { pref: null, popup: false, pulse: false, tipShow: false, pos: null };
+  }
+  get g() {
+    if (!window.__taSound) window.__taSound = { ctx: null, master: null, musicBus: null, sfxBus: null, music: null, buf: {}, pref: null, hidden: false, refs: 0, stopT: 0, wantMusic: false, token: 0 };
+    return window.__taSound;
+  }
+  src(name) {
+    return { tune: 'assets/5f363dc0cfaedf1e4512a9671a37b67d.mp4', meow: 'assets/0a0cbc527ddbe6d2f0818ab7db3e7483.mp4', hiss: 'assets/ec02a5390904f595134f49351155c176.mp4' }[name];
+  }
+  read(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } }
+  write(k, v) { try { window.localStorage.setItem(k, v); } catch (e) {} }
+
+  /* Only ever called from inside a click handler. */
+  ctx() {
+    const g = this.g;
+    if (!g.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      let ctx;
+      try { ctx = new AC(); } catch (e) { return null; }
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -16; comp.knee.value = 20; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.25;
+      const master = ctx.createGain(); master.gain.value = 0.9;
+      master.connect(comp); comp.connect(ctx.destination);
+      const musicBus = ctx.createGain(); musicBus.connect(master);
+      const sfxBus = ctx.createGain(); sfxBus.connect(master);
+      Object.assign(g, { ctx, master, musicBus, sfxBus });
+    }
+    if (g.ctx.state === 'suspended' && !g.hidden) { try { g.ctx.resume(); } catch (e) {} }
+    return g.ctx;
+  }
+  load(name) {
+    const g = this.g;
+    if (!g.buf[name]) {
+      g.buf[name] = fetch(this.src(name))
+        .then((r) => { if (!r.ok) throw new Error('audio ' + r.status); return r.arrayBuffer(); })
+        .then((ab) => new Promise((res, rej) => { const p = g.ctx.decodeAudioData(ab, res, rej); if (p && p.then) p.then(res, rej); }))
+        .catch((e) => { delete g.buf[name]; throw e; });
+    }
+    return g.buf[name];
+  }
+
+  /* Purr (a seamless ~30 s loop): plays only while Morty grooms and sound is on. Fades in over 2 s, out over 0.8 s. */
+  startMusic() {
+    const g = this.g;
+    if (!g.ctx) return;
+    g.wantMusic = true;
+    if (g.music) return;
+    const token = ++g.token;
+    this.load('tune').then((buf) => {
+      if (!g.wantMusic || g.music || token !== g.token) return;
+      const ctx = g.ctx, t = ctx.currentTime;
+      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.09, t + 0.8); /* purr at half its earlier level (was 0.18) */
+      src.connect(gain); gain.connect(g.musicBus); src.start(t);
+      g.music = { src, gain };
+    }).catch(() => {});
+  }
+  stopMusic() {
+    const g = this.g;
+    g.wantMusic = false; g.token++;
+    const m = g.music;
+    if (!m || !g.ctx) return;
+    g.music = null;
+    const p = m.gain.gain, t = g.ctx.currentTime;
+    p.cancelScheduledValues(t); p.setValueAtTime(p.value, t); p.linearRampToValueAtTime(0, t + 0.8);
+    try { m.src.stop(t + 0.85); } catch (e) {}
+  }
+  /* Dip the tune under the hiss, then bring it back. */
+  duck() {
+    const g = this.g;
+    if (!g.musicBus) return;
+    const p = g.musicBus.gain, t = g.ctx.currentTime;
+    p.cancelScheduledValues(t); p.setValueAtTime(p.value, t);
+    p.linearRampToValueAtTime(0.25, t + 0.06); p.setValueAtTime(0.25, t + 0.8); p.linearRampToValueAtTime(1, t + 1.6);
+  }
+  sfx(name, o) {
+    const g = this.g;
+    if (!this.ctx()) return;
+    const asked = Date.now(), rate = o.rate || 1, vol = o.vol == null ? 1 : o.vol;
+    const tok = g.voiceTok = (g.voiceTok || 0) + 1; /* only the latest request plays */
+    this.load(name).then((buf) => {
+      if (tok !== g.voiceTok) return;
+      if (Date.now() - asked > 700) return; /* too late to match the bubble */
+      const ctx = g.ctx, t = ctx.currentTime, dur = o.dur || buf.duration / rate;
+      /* Morty has one voice: cut the previous meow/hiss with a 30 ms fade so sounds never overlap */
+      const prev = g.voice;
+      if (prev) { try { prev.gn.gain.cancelScheduledValues(t); prev.gn.gain.setValueAtTime(prev.gn.gain.value, t); prev.gn.gain.linearRampToValueAtTime(0.0001, t + 0.03); prev.s.stop(t + 0.04); } catch (e) {} }
+      const s = ctx.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate;
+      const gn = ctx.createGain();
+      gn.gain.setValueAtTime(vol, t);
+      if (o.dur) { gn.gain.setValueAtTime(vol, t + Math.max(0, dur - 0.12)); gn.gain.linearRampToValueAtTime(0.0001, t + dur); }
+      s.connect(gn); gn.connect(g.sfxBus); s.start(prev ? t + 0.03 : t); s.stop(t + dur + 0.08);
+      g.voice = { s, gn };
+      s.onended = () => { if (g.voice && g.voice.s === s) g.voice = null; };
+    }).catch(() => {});
+  }
+  /* Button click: a ~50 ms sine blip sweeping 1900 -> 900 Hz, very quiet. */
+  blip() {
+    const ctx = this.ctx();
+    if (!ctx) return;
+    const t = ctx.currentTime, o = ctx.createOscillator(), gn = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(1900, t); o.frequency.exponentialRampToValueAtTime(900, t + 0.05);
+    gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(0.05, t + 0.004); gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    o.connect(gn); gn.connect(this.g.sfxBus); o.start(t); o.stop(t + 0.06);
+  }
+
+  /* Pop-up placement: to Morty's left, bottoms lined up, with a tail pointing at him. On narrow screens: centred above him
+     (or below if there is no room). If he is off screen or not on this page, the bottom corner. */
+  /* Light or dark page? Read the page background: the pop-up's main button uses pure white text on light pages, pure black on dark. */
+  theme() {
+    let dark = false;
+    try {
+      const el = document.querySelector('.ssnd-pop') || document.documentElement;
+      const v = getComputedStyle(el).getPropertyValue('--bg').trim();
+      let r, g, b, m;
+      if ((m = v.match(/^#([0-9a-f]{3})$/i))) { [r, g, b] = m[1].split('').map((c) => parseInt(c + c, 16)); }
+      else if ((m = v.match(/^#([0-9a-f]{6})/i))) { r = parseInt(m[1].slice(0, 2), 16); g = parseInt(m[1].slice(2, 4), 16); b = parseInt(m[1].slice(4, 6), 16); }
+      else if ((m = v.match(/rgba?\(\s*(\d+)[ ,]+(\d+)[ ,]+(\d+)/i))) { r = +m[1]; g = +m[2]; b = +m[3]; }
+      if (r != null) dark = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 < 0.45;
+    } catch (e) {}
+    if (dark !== !!this.state.dark) this.setState({ dark });
+  }
+  place() {
+    if (!this.state.popup || this._solo) return;
+    const el = document.querySelector('.ssnd-pop'), cat = document.querySelector('.cat');
+    let pos = null;
+    if (el && cat) {
+      const vw = window.innerWidth, vh = window.innerHeight, ph = el.offsetHeight, r = cat.getBoundingClientRect();
+      const cl = (v, a, b) => Math.max(a, Math.min(b, v)), px = (v) => Math.round(v) + 'px';
+      if (r.width > 0 && r.bottom > 0 && r.top < vh) {
+        if (r.left - 20 - 340 >= 16) {
+          const top = cl(r.bottom - ph, 16, vh - ph - 16);
+          pos = { left: px(r.left - 20 - 340), top: px(top), width: '340px',
+            tp: { left: 'auto', right: '-8px', top: px(cl(r.top + r.height * 0.4 - top, 18, ph - 32)), bottom: 'auto', rot: '-45deg' } };
+        } else if (r.left - 12 - 16 >= 200) {
+          /* Phones and narrow windows: a smaller pop-up still sits to Morty's left. */
+          const w = Math.min(272, r.left - 12 - 16), top = cl(r.bottom - ph, 72, vh - ph - 16);
+          pos = { left: px(r.left - 12 - w), top: px(top), width: px(w),
+            tp: { left: 'auto', right: '-8px', top: px(cl(r.top + r.height * 0.4 - top, 18, ph - 32)), bottom: 'auto', rot: '-45deg' } };
+        } else if (vw - 16 - (r.right + 12) >= 200) {
+          /* Phones: Morty sits at the left edge, so the smaller pop-up sits beside him on his right. */
+          const w = Math.min(272, vw - 16 - (r.right + 12)), top = cl(r.bottom - ph, 72, vh - ph - 16);
+          pos = { left: px(r.right + 12), top: px(top), width: px(w),
+            tp: { left: '-8px', right: 'auto', top: px(cl(r.top + r.height * 0.4 - top, 18, ph - 32)), bottom: 'auto', rot: '135deg' } };
+        } else {
+          const w = Math.min(340, vw - 32), left = cl(r.left + r.width / 2 - w / 2, 16, vw - w - 16);
+          const ax = px(cl(r.left + r.width / 2 - left - 7, 22, w - 36));
+          if (r.top - ph - 40 >= 72) pos = { left: px(left), top: px(r.top - ph - 40), width: px(w), tp: { left: ax, right: 'auto', top: 'auto', bottom: '-8px', rot: '45deg' } };
+          else if (r.bottom + 18 + ph <= vh - 80) pos = { left: px(left), top: px(r.bottom + 18), width: px(w), tp: { left: ax, right: 'auto', top: '-8px', bottom: 'auto', rot: '-135deg' } };
+        }
+      }
+    }
+    const sm = window.innerWidth <= 900;
+    const k = JSON.stringify(pos) + sm;
+    if (k !== this._posKey) { this._posKey = k; this.setState({ pos, sm }); }
+  }
+
+  emit() {
+    const f = this.props.sndState;
+    if (typeof f !== 'function') return;
+    const { pref, pulse, tipShow } = this.state, on = pref === 'on';
+    f({
+      cls: (on ? 'is-on' : 'is-off') + (pref === null ? ' is-unset' : '') + (pulse ? ' pulse' : '') + (tipShow ? ' tipshow' : ''),
+      pressed: on ? 'true' : 'false',
+      label: on ? 'Sound on' : 'Sound off',
+      tip: tipShow ? 'Tap to hear Morty' : (on ? 'Sound on · click to mute' : 'Sound off · click to turn on')
+    });
+  }
+  setPref(v) {
+    this.g.pref = v;
+    this.write('ta-sound', v);
+    clearTimeout(this._pt); clearTimeout(this._tt);
+    this.setState({ pref: v, popup: this._solo, pulse: false, tipShow: false }, () => this.emit());
+  }
+  /* Closing the pop-up (the cross, or scrolling down) hides it for the rest of this visit without choosing on or off. */
+  dismiss() {
+    if (this._solo || !this.state.popup) return;
+    try { sessionStorage.setItem('ta-sound-dismissed', '1'); } catch (e) {}
+    if (this.state.popOut) return;
+    const rm = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    this.setState({ popOut: true });
+    clearTimeout(this._popT);
+    this._popT = setTimeout(() => this.setState({ popup: false, popOut: false }), rm ? 0 : 260);
+  }
+  turnOn() {
+    this.setPref('on');
+    if (!this.ctx()) return;
+    this.load('meow').catch(() => {}); this.load('hiss').catch(() => {}); this.load('tune').catch(() => {});
+    if (this.g.grooming) this.startMusic();
+    this.sfx('meow', { rate: 1.32, vol: 0.7, dur: 0.4 }); /* short, higher "mrrp" */
+  }
+  turnOff() { this.setPref('off'); this.stopMusic(); }
+  toggle() { if (this.g.pref === 'on') this.turnOff(); else this.turnOn(); }
+  /* Called by the page when Morty starts or stops grooming: the purr plays only then, and only if sound is on.
+     The AudioContext must already exist (made by an earlier click); if not, the next click starts the purr. */
+  groom(on) {
+    const g = this.g;
+    g.grooming = !!on;
+    if (on && g.pref === 'on' && g.ctx && !g.hidden) this.startMusic();
+    else if (!on) this.stopMusic();
+  }
+  /* Called by the page at the moment the cat's bubble shows Meow! or Hisss!!! */
+  cat(kind) {
+    const g = this.g;
+    if (g.pref === 'on') {
+      if (!this.ctx()) return;
+      if (kind === 'hiss') { this.duck(); this.sfx('hiss', { vol: 1.4 }); }
+      else this.sfx('meow', { rate: 0.94 + Math.random() * 0.14, vol: 0.9 });
+      return;
+    }
+    /* Not chosen yet: point at the speaker once, ever. Never for someone who chose quiet. */
+    if (g.pref === null && !this._pulsed) {
+      this._pulsed = true; this.write('ta-sound-pulsed', '1');
+      this.setState({ pulse: true, tipShow: true }, () => this.emit());
+      this._pt = setTimeout(() => this.setState({ pulse: false }, () => this.emit()), 1000);
+      this._tt = setTimeout(() => this.setState({ tipShow: false }, () => this.emit()), 2800);
+    }
+  }
+
+  componentDidMount() {
+    const g = this.g;
+    g.refs++; clearTimeout(g.stopT);
+    this._place = () => { cancelAnimationFrame(this._raf); this._raf = requestAnimationFrame(() => this.place()); };
+    let pref = this.read('ta-sound');
+    if (pref !== 'on' && pref !== 'off') pref = null;
+    g.pref = pref;
+    g.hidden = !!document.hidden;
+    g.grooming = false;
+    if (g.music) this.stopMusic(); /* a new page starts with Morty awake, so no purr */
+    this._pulsed = this.read('ta-sound-pulsed') === '1';
+    this._solo = typeof this.props.sndReady !== 'function'; /* shown on its own artboard: keep the pop-up visible */
+    if (pref !== 'on' && g.music) this.stopMusic();
+    let dismissed = false; try { dismissed = sessionStorage.getItem('ta-sound-dismissed') === '1'; } catch (e) {}
+    this.setState({ pref, popup: this._solo || (pref === null && !dismissed) }, () => { this.emit(); this.theme(); this._place(); });
+    /* Scrolling down past 80px closes the pop-up */
+    this._popY = Math.max(0, window.scrollY || 0);
+    this._popScroll = () => { if (this.state.popup && !this._solo && (window.scrollY || 0) - this._popY > 80) this.dismiss(); };
+    window.addEventListener('scroll', this._popScroll, { passive: true });
+
+    /* One capture-phase listener: a quiet click for every button and link, except the cat and anything with its own sound.
+       Also starts the tune on the first click after a page load when sound was already on. */
+    this._click = (e) => {
+      if (g.pref !== 'on') return;
+      if (!this.ctx()) return;
+      if (g.grooming && !g.music) this.startMusic();
+      const t = e.target && e.target.closest ? e.target : (e.target && e.target.parentElement);
+      const el = t && t.closest('a[href],button,summary,label,[role="button"],[role="link"],[role="tab"],[role="menuitem"],input[type="checkbox"],input[type="radio"],input[type="submit"],input[type="button"]');
+      if (!el || el.disabled || el.closest('.cat,[data-own-sound]')) return;
+      this.blip();
+    };
+    document.addEventListener('click', this._click, true);
+    /* Pause everything while the tab is hidden; pick up again on return. */
+    this._vis = () => {
+      g.hidden = !!document.hidden;
+      if (!g.ctx) return;
+      try { if (document.hidden) g.ctx.suspend(); else if (g.pref === 'on') g.ctx.resume(); } catch (e) {}
+    };
+    document.addEventListener('visibilitychange', this._vis);
+    /* A choice made in another tab or frame closes this pop-up too. */
+    this._store = (e) => {
+      if (e.key !== 'ta-sound') return;
+      const v = e.newValue === 'on' || e.newValue === 'off' ? e.newValue : null;
+      g.pref = v;
+      if (v !== 'on') this.stopMusic();
+      this.setState({ pref: v, popup: this._solo || v === null }, () => this.emit());
+    };
+    window.addEventListener('storage', this._store);
+    /* Keep the pop-up beside Morty while the page scrolls, resizes or settles. */
+    window.addEventListener('scroll', this._place, { capture: true, passive: true });
+    window.addEventListener('resize', this._place);
+    this._pi = setInterval(() => { if (this.state.popup) { this.theme(); this._place(); } }, 600);
+    /* Phones: hide the top bar and the floating Menu while scrolling down, bring them back on scroll up or near the top.
+       A small threshold (12px of travel in one direction) stops flicker on tiny movements. Desktop is never touched. */
+    const root = document.documentElement;
+    const mq = window.matchMedia ? window.matchMedia('(max-width: 900px)') : null;
+    let lastY = Math.max(0, window.scrollY || 0), acc = 0, navHidden = false, ticking = false;
+    const setNav = (h) => { if (h === navHidden) return; navHidden = h; root.classList.toggle('ta-nav-hidden', h); };
+    this._setNav = setNav;
+    this._navScroll = () => {
+      if (ticking) return; ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        const y = Math.max(0, window.scrollY || 0), dy = y - lastY; lastY = y;
+        if (!mq || !mq.matches || y < 64 || document.getElementById('mdrawer')) { acc = 0; setNav(false); return; }
+        if (dy === 0) return;
+        if ((dy > 0) !== (acc > 0)) acc = 0;
+        acc += dy;
+        if (acc > 12) setNav(true); else if (acc < -12) setNav(false);
+      });
+    };
+    window.addEventListener('scroll', this._navScroll, { passive: true });
+    /* Keyboard users: tabbing into the hidden bar or Menu brings them back */
+    this._navFocus = (e) => { const t = e.target; if (t && t.closest && t.closest('header.mbar, .fmenu')) setNav(false); };
+    document.addEventListener('focusin', this._navFocus);
+    /* "Call me": phones follow the tel: link and open the dialer. Elsewhere the first click reveals the number,
+       and a click on the revealed number copies it (check mark for 1.6 s). */
+    const touchPhone = window.matchMedia ? window.matchMedia('(hover: none) and (pointer: coarse)') : null;
+    const copyText = (t) => {
+      if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(t).catch(() => fallback(t));
+      return Promise.resolve(fallback(t));
+    };
+    const fallback = (t) => {
+      const ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:-100px;opacity:0'; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (e) {} ta.remove();
+    };
+    this._call = (e) => {
+      const b = e.target && e.target.closest && e.target.closest('a.callbtn');
+      if (!b || (touchPhone && touchPhone.matches)) return;
+      e.preventDefault();
+      const num = b.getAttribute('data-call') || '', live = b.querySelector('.cb-live');
+      if (!b.dataset.st) {
+        b.dataset.st = 'shown'; b.setAttribute('aria-label', num + ', copy to clipboard');
+        if (live) live.textContent = num;
+        return;
+      }
+      copyText(num.replace(/\s+/g, '')).then(() => {
+        b.dataset.st = 'copied'; if (live) live.textContent = 'Number copied';
+        clearTimeout(b._cbT); b._cbT = setTimeout(() => { b.dataset.st = 'shown'; }, 1600);
+      });
+    };
+    document.addEventListener('click', this._call);
+    if (!this._solo) this.props.sndReady({ toggle: () => this.toggle(), cat: (k) => this.cat(k), groom: (on) => this.groom(on) });
+  }
+  componentWillUnmount() {
+    window.removeEventListener('scroll', this._navScroll);
+    document.removeEventListener('focusin', this._navFocus);
+    document.removeEventListener('click', this._call);
+    if (this._setNav) this._setNav(false);
+    document.removeEventListener('click', this._click, true);
+    document.removeEventListener('visibilitychange', this._vis);
+    window.removeEventListener('storage', this._store);
+    window.removeEventListener('scroll', this._place, { capture: true });
+    window.removeEventListener('scroll', this._popScroll);
+    window.removeEventListener('resize', this._place);
+    clearInterval(this._pi); cancelAnimationFrame(this._raf);
+    clearTimeout(this._pt); clearTimeout(this._tt);
+    const g = this.g;
+    g.refs = Math.max(0, g.refs - 1);
+    clearTimeout(g.stopT);
+    /* If no page takes over within a moment (e.g. leaving Play), fade the tune out. */
+    g.stopT = setTimeout(() => { if (g.refs === 0) this.stopMusic(); }, 400);
+  }
+  renderVals() {
+    const p = this.state.pos;
+    return {
+      popup: this.state.popup,
+      pos: p ? { left: p.left, top: p.top, right: 'auto', bottom: 'auto', width: p.width } : { left: 'auto', top: 'auto', right: '24px', bottom: '24px', width: '340px' },
+      posCls: p ? 'ssnd-at' : '',
+      /* Main button: black with white text on light pages, white with black text on dark pages */
+      ctaBg: this.state.dark ? '#FFFFFF' : '#000000',
+      ctaInk: this.state.dark ? '#000000' : '#FFFFFF',
+      /* Slightly smaller on phones */
+      sz: this.state.sm
+        ? { gap: '12px', pad: '14px', rad: '18px', fs: '13px', bh: '40px', bpad: '12px', bfs: '14px', foot: '11px', cols: 'minmax(0, 1fr)' }
+        : { gap: '12px', pad: '16px 18px', rad: '20px', fs: '14px', bh: '44px', bpad: '12px', bfs: '14px', foot: '12px', cols: 'repeat(2, minmax(0, 1fr))' },
+      tail: !!p,
+      tp: p ? p.tp : { left: 'auto', top: 'auto', right: 'auto', bottom: 'auto', rot: '0deg' },
+      turnOn: () => this.turnOn(),
+      keepQuiet: () => this.turnOff(),
+      dismiss: () => this.dismiss(),
+      outCls: this.state.popOut ? 'ssnd-out' : '',
+    };
+  }
+}
+</script>
+</body>
+</html>
